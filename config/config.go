@@ -724,6 +724,54 @@ func (r *Route) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// UnmarshalJSON implements the yaml.Unmarshaler interface for Route.
+func (r *Route) UnmarshalJSON(data []byte) error {
+	var plain Route
+	if err := json.Unmarshal(data, &plain); err != nil {
+		return err
+	}
+
+	for k := range r.Match {
+		if !model.LabelNameRE.MatchString(k) {
+			return fmt.Errorf("invalid label name %q", k)
+		}
+	}
+
+	for _, l := range r.GroupByStr {
+		if l == "..." {
+			r.GroupByAll = true
+		} else {
+			labelName := model.LabelName(l)
+			if !labelName.IsValid() {
+				return fmt.Errorf("invalid label name %q in group_by list", l)
+			}
+			r.GroupBy = append(r.GroupBy, labelName)
+		}
+	}
+
+	if len(r.GroupBy) > 0 && r.GroupByAll {
+		return fmt.Errorf("cannot have wildcard group_by (`...`) and other other labels at the same time")
+	}
+
+	groupBy := map[model.LabelName]struct{}{}
+
+	for _, ln := range r.GroupBy {
+		if _, ok := groupBy[ln]; ok {
+			return fmt.Errorf("duplicated label %q in group_by", ln)
+		}
+		groupBy[ln] = struct{}{}
+	}
+
+	if r.GroupInterval != nil && time.Duration(*r.GroupInterval) == time.Duration(0) {
+		return fmt.Errorf("group_interval cannot be zero")
+	}
+	if r.RepeatInterval != nil && time.Duration(*r.RepeatInterval) == time.Duration(0) {
+		return fmt.Errorf("repeat_interval cannot be zero")
+	}
+
+	return nil
+}
+
 // InhibitRule defines an inhibition rule that mutes alerts that match the
 // target labels if an alert matching the source labels exists.
 // Both alerts have to have a set of labels being equal.
